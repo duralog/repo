@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import print_function
 import re
 import sys
 
@@ -32,13 +33,13 @@ makes it available in your project's local working directory.
 """
 
   def _Options(self, p):
-    p.add_option('-c','--cherry-pick',
+    p.add_option('-c', '--cherry-pick',
                  dest='cherrypick', action='store_true',
                  help="cherry-pick instead of checkout")
-    p.add_option('-r','--revert',
+    p.add_option('-r', '--revert',
                  dest='revert', action='store_true',
                  help="revert instead of checkout")
-    p.add_option('-f','--ff-only',
+    p.add_option('-f', '--ff-only',
                  dest='ffonly', action='store_true',
                  help="force fast-forward merge")
 
@@ -68,23 +69,23 @@ makes it available in your project's local working directory.
     for project, change_id, ps_id in self._ParseChangeIds(args):
       dl = project.DownloadPatchSet(change_id, ps_id)
       if not dl:
-        print >>sys.stderr, \
-          '[%s] change %d/%d not found' \
-          % (project.name, change_id, ps_id)
+        print('[%s] change %d/%d not found'
+              % (project.name, change_id, ps_id),
+              file=sys.stderr)
         sys.exit(1)
 
       if not opt.revert and not dl.commits:
-        print >>sys.stderr, \
-          '[%s] change %d/%d has already been merged' \
-          % (project.name, change_id, ps_id)
+        print('[%s] change %d/%d has already been merged'
+              % (project.name, change_id, ps_id),
+              file=sys.stderr)
         continue
 
       if len(dl.commits) > 1:
-        print >>sys.stderr, \
-          '[%s] %d/%d depends on %d unmerged changes:' \
-          % (project.name, change_id, ps_id, len(dl.commits))
+        print('[%s] %d/%d depends on %d unmerged changes:' \
+              % (project.name, change_id, ps_id, len(dl.commits)),
+              file=sys.stderr)
         for c in dl.commits:
-          print >>sys.stderr, '  %s' % (c)
+          print('  %s' % (c), file=sys.stderr)
       if opt.cherrypick:
         project._CherryPick(dl.commit)
       elif opt.revert:

@@ -36,50 +36,51 @@ ATTRS = {None     :-1,
          'blink'  : 5,
          'reverse': 7}
 
-RESET = "\033[m"
+RESET = "\033[m"  # pylint: disable=W1401
+                  # backslash is not anomalous
 
 def is_color(s):
-    return s in COLORS
+  return s in COLORS
 
 def is_attr(s):
-    return s in ATTRS
+  return s in ATTRS
 
 def _Color(fg = None, bg = None, attr = None):
-    fg = COLORS[fg]
-    bg = COLORS[bg]
-    attr = ATTRS[attr]
+  fg = COLORS[fg]
+  bg = COLORS[bg]
+  attr = ATTRS[attr]
 
-    if attr >= 0 or fg >= 0 or bg >= 0:
-      need_sep = False
-      code = "\033["
+  if attr >= 0 or fg >= 0 or bg >= 0:
+    need_sep = False
+    code = "\033["  #pylint: disable=W1401
 
-      if attr >= 0:
-        code += chr(ord('0') + attr)
-        need_sep = True
+    if attr >= 0:
+      code += chr(ord('0') + attr)
+      need_sep = True
 
-      if fg >= 0:
-        if need_sep:
-          code += ';'
-        need_sep = True
+    if fg >= 0:
+      if need_sep:
+        code += ';'
+      need_sep = True
 
-        if fg < 8:
-          code += '3%c' % (ord('0') + fg)
-        else:
-          code += '38;5;%d' % fg
+      if fg < 8:
+        code += '3%c' % (ord('0') + fg)
+      else:
+        code += '38;5;%d' % fg
 
-      if bg >= 0:
-        if need_sep:
-          code += ';'
-        need_sep = True
+    if bg >= 0:
+      if need_sep:
+        code += ';'
+      need_sep = True
 
-        if bg < 8:
-          code += '4%c' % (ord('0') + bg)
-        else:
-          code += '48;5;%d' % bg
-      code += 'm'
-    else:
-      code = ''
-    return code
+      if bg < 8:
+        code += '4%c' % (ord('0') + bg)
+      else:
+        code += '48;5;%d' % bg
+    code += 'm'
+  else:
+    code = ''
+  return code
 
 
 class Coloring(object):
@@ -125,6 +126,13 @@ class Coloring(object):
       s._out.write(c(fmt, *args))
     return f
 
+  def nofmt_printer(self, opt=None, fg=None, bg=None, attr=None):
+    s = self
+    c = self.nofmt_colorer(opt, fg, bg, attr)
+    def f(fmt):
+      s._out.write(c(fmt))
+    return f
+
   def colorer(self, opt=None, fg=None, bg=None, attr=None):
     if self._on:
       c = self._parse(opt, fg, bg, attr)
@@ -135,6 +143,17 @@ class Coloring(object):
     else:
       def f(fmt, *args):
         return fmt % args
+      return f
+
+  def nofmt_colorer(self, opt=None, fg=None, bg=None, attr=None):
+    if self._on:
+      c = self._parse(opt, fg, bg, attr)
+      def f(fmt):
+        return ''.join([c, fmt, RESET])
+      return f
+    else:
+      def f(fmt):
+        return fmt
       return f
 
   def _parse(self, opt, fg, bg, attr):

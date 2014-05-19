@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import print_function
 import os
 import sys
 import subprocess
@@ -20,6 +21,7 @@ import tempfile
 from signal import SIGTERM
 from error import GitError
 from trace import REPO_TRACE, IsTrace, Trace
+from wrapper import Wrapper
 
 GIT = 'git'
 MIN_GIT_VERSION = (1, 5, 4)
@@ -83,16 +85,11 @@ class _GitCall(object):
 
   def version_tuple(self):
     global _git_version
-
     if _git_version is None:
-      ver_str = git.version()
-      if ver_str.startswith('git version '):
-        _git_version = tuple(
-          map(lambda x: int(x),
-            ver_str[len('git version '):].strip().split('-')[0].split('.')[0:3]
-          ))
-      else:
-        print >>sys.stderr, 'fatal: "%s" unsupported' % ver_str
+      ver_str = git.version().decode('utf-8')
+      _git_version = Wrapper().ParseGitVersion(ver_str)
+      if _git_version is None:
+        print('fatal: "%s" unsupported' % ver_str, file=sys.stderr)
         sys.exit(1)
     return _git_version
 
@@ -110,8 +107,8 @@ def git_require(min_version, fail=False):
   if min_version <= git_version:
     return True
   if fail:
-    need = '.'.join(map(lambda x: str(x), min_version))
-    print >>sys.stderr, 'fatal: git %s or later required' % need
+    need = '.'.join(map(str, min_version))
+    print('fatal: git %s or later required' % need, file=sys.stderr)
     sys.exit(1)
   return False
 
@@ -132,15 +129,15 @@ class GitCommand(object):
                gitdir = None):
     env = os.environ.copy()
 
-    for e in [REPO_TRACE,
+    for key in [REPO_TRACE,
               GIT_DIR,
               'GIT_ALTERNATE_OBJECT_DIRECTORIES',
               'GIT_OBJECT_DIRECTORY',
               'GIT_WORK_TREE',
               'GIT_GRAFT_FILE',
               'GIT_INDEX_FILE']:
-      if e in env:
-        del env[e]
+      if key in env:
+        del env[key]
 
     if disable_editor:
       _setenv(env, 'GIT_EDITOR', ':')

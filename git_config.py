@@ -13,8 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import cPickle
+from __future__ import print_function
+
 import os
+import pickle
 import re
 import subprocess
 import sys
@@ -23,11 +25,25 @@ try:
 except ImportError:
   import dummy_threading as _threading
 import time
-import urllib2
+
+from pyversion import is_python3
+if is_python3():
+  import urllib.request
+  import urllib.error
+else:
+  import urllib2
+  import imp
+  urllib = imp.new_module('urllib')
+  urllib.request = urllib2
+  urllib.error = urllib2
 
 from signal import SIGTERM
 from error import GitError, UploadError
 from trace import Trace
+if is_python3():
+  from http.client import HTTPException
+else:
+  from httplib import HTTPException
 
 from git_command import GitCommand
 from git_command import ssh_sock
@@ -35,7 +51,7 @@ from git_command import terminate_ssh_clients
 
 R_HEADS = 'refs/heads/'
 R_TAGS  = 'refs/tags/'
-ID_RE = re.compile('^[0-9a-f]{40}$')
+ID_RE = re.compile(r'^[0-9a-f]{40}$')
 
 REVIEW_CACHE = dict()
 
@@ -157,7 +173,7 @@ class GitConfig(object):
       elif old != value:
         self._cache[key] = list(value)
         self._do('--replace-all', name, value[0])
-        for i in xrange(1, len(value)):
+        for i in range(1, len(value)):
           self._do('--add', name, value[i])
 
     elif len(old) != 1 or old[0] != value:
@@ -250,7 +266,7 @@ class GitConfig(object):
       Trace(': unpickle %s', self.file)
       fd = open(self._pickle, 'rb')
       try:
-        return cPickle.load(fd)
+        return pickle.load(fd)
       finally:
         fd.close()
     except EOFError:
@@ -259,7 +275,7 @@ class GitConfig(object):
     except IOError:
       os.remove(self._pickle)
       return None
-    except cPickle.PickleError:
+    except pickle.PickleError:
       os.remove(self._pickle)
       return None
 
@@ -267,13 +283,13 @@ class GitConfig(object):
     try:
       fd = open(self._pickle, 'wb')
       try:
-        cPickle.dump(cache, fd, cPickle.HIGHEST_PROTOCOL)
+        pickle.dump(cache, fd, pickle.HIGHEST_PROTOCOL)
       finally:
         fd.close()
     except IOError:
       if os.path.exists(self._pickle):
         os.remove(self._pickle)
-    except cPickle.PickleError:
+    except pickle.PickleError:
       if os.path.exists(self._pickle):
         os.remove(self._pickle)
 
@@ -288,12 +304,13 @@ class GitConfig(object):
     d = self._do('--null', '--list')
     if d is None:
       return c
-    for line in d.rstrip('\0').split('\0'):
+    for line in d.decode('utf-8').rstrip('\0').split('\0'):  # pylint: disable=W1401
+                                                             # Backslash is not anomalous
       if '\n' in line:
-          key, val = line.split('\n', 1)
+        key, val = line.split('\n', 1)
       else:
-          key = line
-          val = None
+        key = line
+        val = None
 
       if key in c:
         c[key].append(val)
@@ -418,7 +435,7 @@ def _open_ssh(host, port=None):
                      '-o','ControlPath %s' % ssh_sock(),
                      host]
     if port is not None:
-      command_base[1:1] = ['-p',str(port)]
+      command_base[1:1] = ['-p', str(port)]
 
     # Since the key wasn't in _master_keys, we think that master isn't running.
     # ...but before actually starting a master, we'll double-check.  This can
@@ -451,9 +468,8 @@ def _open_ssh(host, port=None):
       p = subprocess.Popen(command)
     except Exception as e:
       _ssh_master = False
-      print >>sys.stderr, \
-        '\nwarn: cannot enable ssh control master for %s:%s\n%s' \
-        % (host,port, str(e))
+      print('\nwarn: cannot enable ssh control master for %s:%s\n%s'
+             % (host,port, str(e)), file=sys.stderr)
       return False
 
     _master_processes.append(p)
@@ -525,8 +541,8 @@ class Remote(object):
     self.url = self._Get('url')
     self.review = self._Get('review')
     self.projectname = self._Get('projectname')
-    self.fetch = map(lambda x: RefSpec.FromString(x),
-                     self._Get('fetch', all_keys=True))
+    self.fetch = list(map(RefSpec.FromString,
+                      self._Get('fetch', all_keys=True)))
     self._review_url = None
 
   def _InsteadOf(self):
@@ -579,23 +595,22 @@ class Remote(object):
       else:
         try:
           info_url = u + 'ssh_info'
-          info = urllib2.urlopen(info_url).read()
-          if '<' in info:
-            # Assume the server gave us some sort of HTML
-            # response back, like maybe a login page.
+          info = urllib.request.urlopen(info_url).read()
+          if info == 'NOT_AVAILABLE' or '<' in info:
+            # If `info` contains '<', we assume the server gave us some sort
+            # of HTML response back, like maybe a login page.
             #
-            raise UploadError('%s: Cannot parse response' % info_url)
-
-          if info == 'NOT_AVAILABLE':
-            # Assume HTTP if SSH is not enabled.
+            # Assume HTTP if SSH is not enabled or ssh_info doesn't look right.
             self._review_url = http_url + 'p/'
           else:
             host, port = info.split()
             self._review_url = self._SshReviewUrl(userEmail, host, port)
-        except urllib2.HTTPError as e:
+        except urllib.error.HTTPError as e:
           raise UploadError('%s: %s' % (self.review, str(e)))
-        except urllib2.URLError as e:
+        except urllib.error.URLError as e:
           raise UploadError('%s: %s' % (self.review, str(e)))
+        except HTTPException as e:
+          raise UploadError('%s: %s' % (self.review, e.__class__.__name__))
 
         REVIEW_CACHE[u] = self._review_url
     return self._review_url + self.projectname
@@ -645,7 +660,7 @@ class Remote(object):
     self._Set('url', self.url)
     self._Set('review', self.review)
     self._Set('projectname', self.projectname)
-    self._Set('fetch', map(lambda x: str(x), self.fetch))
+    self._Set('fetch', list(map(str, self.fetch)))
 
   def _Set(self, key, value):
     key = 'remote.%s.%s' % (self.name, key)

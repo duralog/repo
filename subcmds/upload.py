@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import print_function
 import copy
 import re
 import sys
@@ -20,22 +21,31 @@ import sys
 from command import InteractiveCommand
 from editor import Editor
 from error import HookError, UploadError
+from git_command import GitCommand
 from project import RepoHook
+
+from pyversion import is_python3
+if not is_python3():
+  # pylint:disable=W0622
+  input = raw_input
+  # pylint:enable=W0622
 
 UNUSUAL_COMMIT_THRESHOLD = 5
 
 def _ConfirmManyUploads(multiple_branches=False):
   if multiple_branches:
-    print "ATTENTION: One or more branches has an unusually high number of commits."
+    print('ATTENTION: One or more branches has an unusually high number '
+          'of commits.')
   else:
-    print "ATTENTION: You are uploading an unusually high number of commits."
-  print "YOU PROBABLY DO NOT MEAN TO DO THIS. (Did you rebase across branches?)"
-  answer = raw_input("If you are sure you intend to do this, type 'yes': ").strip()
+    print('ATTENTION: You are uploading an unusually high number of commits.')
+  print('YOU PROBABLY DO NOT MEAN TO DO THIS. (Did you rebase across '
+        'branches?)')
+  answer = input("If you are sure you intend to do this, type 'yes': ").strip()
   return answer == "yes"
 
 def _die(fmt, *args):
   msg = fmt % args
-  print >>sys.stderr, 'error: %s' % msg
+  print('error: %s' % msg, file=sys.stderr)
   sys.exit(1)
 
 def _SplitEmails(values):
@@ -47,7 +57,7 @@ def _SplitEmails(values):
 class Upload(InteractiveCommand):
   common = True
   helpSummary = "Upload changes for code review"
-  helpUsage="""
+  helpUsage = """
 %prog [--re --cc] [<project>]...
 """
   helpDescription = """
@@ -137,6 +147,10 @@ Gerrit Code Review:  http://code.google.com/p/gerrit/
     p.add_option('-d', '--draft',
                  action='store_true', dest='draft', default=False,
                  help='If specified, upload as a draft.')
+    p.add_option('-D', '--destination', '--dest',
+                 type='string', action='store', dest='dest_branch',
+                 metavar='BRANCH',
+                 help='Submit for review on this target branch.')
 
     # Options relating to upload hook.  Note that verify and no-verify are NOT
     # opposites of each other, which is why they store to different locations.
@@ -176,18 +190,19 @@ Gerrit Code Review:  http://code.google.com/p/gerrit/
       date = branch.date
       commit_list = branch.commits
 
-      print 'Upload project %s/ to remote branch %s:' % (project.relpath, project.revisionExpr)
-      print '  branch %s (%2d commit%s, %s):' % (
+      destination = opt.dest_branch or project.dest_branch or project.revisionExpr
+      print('Upload project %s/ to remote branch %s:' % (project.relpath, destination))
+      print('  branch %s (%2d commit%s, %s):' % (
                     name,
                     len(commit_list),
                     len(commit_list) != 1 and 's' or '',
-                    date)
+                    date))
       for commit in commit_list:
-        print '         %s' % commit
+        print('         %s' % commit)
 
       sys.stdout.write('to %s (y/N)? ' % remote.review)
-      answer = sys.stdin.readline().strip()
-      answer = answer in ('y', 'Y', 'yes', '1', 'true', 't')
+      answer = sys.stdin.readline().strip().lower()
+      answer = answer in ('y', 'yes', '1', 'true', 't')
 
     if answer:
       if len(branch.commits) > UNUSUAL_COMMIT_THRESHOLD:
@@ -210,18 +225,21 @@ Gerrit Code Review:  http://code.google.com/p/gerrit/
 
       b = {}
       for branch in avail:
+        if branch is None:
+          continue
         name = branch.name
         date = branch.date
         commit_list = branch.commits
 
         if b:
           script.append('#')
+        destination = opt.dest_branch or project.dest_branch or project.revisionExpr
         script.append('#  branch %s (%2d commit%s, %s) to remote branch %s:' % (
                       name,
                       len(commit_list),
                       len(commit_list) != 1 and 's' or '',
                       date,
-                      project.revisionExpr))
+                      destination))
         for commit in commit_list:
           script.append('#         %s' % commit)
         b[name] = branch
@@ -297,7 +315,7 @@ Gerrit Code Review:  http://code.google.com/p/gerrit/
     try:
       # refs/changes/XYZ/N --> XYZ
       return refs.get(last_pub).split('/')[-2]
-    except:
+    except (AttributeError, IndexError):
       return ""
 
   def _UploadAndReport(self, opt, todo, original_people):
@@ -309,33 +327,48 @@ Gerrit Code Review:  http://code.google.com/p/gerrit/
 
         # Check if there are local changes that may have been forgotten
         if branch.project.HasChanges():
-            key = 'review.%s.autoupload' % branch.project.remote.review
-            answer = branch.project.config.GetBoolean(key)
+          key = 'review.%s.autoupload' % branch.project.remote.review
+          answer = branch.project.config.GetBoolean(key)
 
-            # if they want to auto upload, let's not ask because it could be automated
-            if answer is None:
-                sys.stdout.write('Uncommitted changes in ' + branch.project.name + ' (did you forget to amend?). Continue uploading? (y/N) ')
-                a = sys.stdin.readline().strip().lower()
-                if a not in ('y', 'yes', 't', 'true', 'on'):
-                    print >>sys.stderr, "skipping upload"
-                    branch.uploaded = False
-                    branch.error = 'User aborted'
-                    continue
+          # if they want to auto upload, let's not ask because it could be automated
+          if answer is None:
+            sys.stdout.write('Uncommitted changes in ' + branch.project.name + ' (did you forget to amend?). Continue uploading? (y/N) ')
+            a = sys.stdin.readline().strip().lower()
+            if a not in ('y', 'yes', 't', 'true', 'on'):
+              print("skipping upload", file=sys.stderr)
+              branch.uploaded = False
+              branch.error = 'User aborted'
+              continue
 
         # Check if topic branches should be sent to the server during upload
         if opt.auto_topic is not True:
-           key = 'review.%s.uploadtopic' % branch.project.remote.review
-           opt.auto_topic = branch.project.config.GetBoolean(key)
+          key = 'review.%s.uploadtopic' % branch.project.remote.review
+          opt.auto_topic = branch.project.config.GetBoolean(key)
 
-        branch.UploadForReview(people, auto_topic=opt.auto_topic, draft=opt.draft)
+        destination = opt.dest_branch or branch.project.dest_branch
+
+        # Make sure our local branch is not setup to track a different remote branch
+        merge_branch = self._GetMergeBranch(branch.project)
+        if destination:
+          full_dest = 'refs/heads/%s' % destination
+          if not opt.dest_branch and merge_branch and merge_branch != full_dest:
+            print('merge branch %s does not match destination branch %s'
+                  % (merge_branch, full_dest))
+            print('skipping upload.')
+            print('Please use `--destination %s` if this is intentional'
+                  % destination)
+            branch.uploaded = False
+            continue
+
+        branch.UploadForReview(people, auto_topic=opt.auto_topic, draft=opt.draft, dest_branch=destination)
         branch.uploaded = True
       except UploadError as e:
         branch.error = e
         branch.uploaded = False
         have_errors = True
 
-    print >>sys.stderr, ''
-    print >>sys.stderr, '----------------------------------------------------------------------'
+    print(file=sys.stderr)
+    print('----------------------------------------------------------------------', file=sys.stderr)
 
     if have_errors:
       for branch in todo:
@@ -344,20 +377,37 @@ Gerrit Code Review:  http://code.google.com/p/gerrit/
             fmt = ' (%s)'
           else:
             fmt = '\n       (%s)'
-          print >>sys.stderr, ('[FAILED] %-15s %-15s' + fmt) % (
+          print(('[FAILED] %-15s %-15s' + fmt) % (
                  branch.project.relpath + '/', \
                  branch.name, \
-                 str(branch.error))
-      print >>sys.stderr, ''
+                 str(branch.error)),
+                 file=sys.stderr)
+      print()
 
     for branch in todo:
-        if branch.uploaded:
-          print >>sys.stderr, '[OK    ] %-15s %s' % (
-                 branch.project.relpath + '/',
-                 branch.name)
+      if branch.uploaded:
+        print('[OK    ] %-15s %s' % (
+               branch.project.relpath + '/',
+               branch.name),
+               file=sys.stderr)
 
     if have_errors:
       sys.exit(1)
+
+  def _GetMergeBranch(self, project):
+    p = GitCommand(project,
+                   ['rev-parse', '--abbrev-ref', 'HEAD'],
+                   capture_stdout = True,
+                   capture_stderr = True)
+    p.Wait()
+    local_branch = p.stdout.strip()
+    p = GitCommand(project,
+                   ['config', '--get', 'branch.%s.merge' % local_branch],
+                   capture_stdout = True,
+                   capture_stderr = True)
+    p.Wait()
+    merge_branch = p.stdout.strip()
+    return merge_branch
 
   def Execute(self, opt, args):
     project_list = self.GetProjects(args)
@@ -372,7 +422,16 @@ Gerrit Code Review:  http://code.google.com/p/gerrit/
     for project in project_list:
       if opt.current_branch:
         cbr = project.CurrentBranch
-        avail = [project.GetUploadableBranch(cbr)] if cbr else None
+        up_branch = project.GetUploadableBranch(cbr)
+        if up_branch:
+          avail = [up_branch]
+        else:
+          avail = None
+          print('ERROR: Current branch (%s) not uploadable. '
+                'You may be able to type '
+                '"git branch --set-upstream-to m/master" to fix '
+                'your branch.' % str(cbr),
+                file=sys.stderr)
       else:
         avail = project.GetUploadableBranches(branch)
       if avail:
@@ -382,20 +441,22 @@ Gerrit Code Review:  http://code.google.com/p/gerrit/
       hook = RepoHook('pre-upload', self.manifest.repo_hooks_project,
                       self.manifest.topdir, abort_if_user_denies=True)
       pending_proj_names = [project.name for (project, avail) in pending]
+      pending_worktrees = [project.worktree for (project, avail) in pending]
       try:
-        hook.Run(opt.allow_all_hooks, project_list=pending_proj_names)
+        hook.Run(opt.allow_all_hooks, project_list=pending_proj_names,
+                 worktree_list=pending_worktrees)
       except HookError as e:
-        print >>sys.stderr, "ERROR: %s" % str(e)
+        print("ERROR: %s" % str(e), file=sys.stderr)
         return
 
     if opt.reviewers:
       reviewers = _SplitEmails(opt.reviewers)
     if opt.cc:
       cc = _SplitEmails(opt.cc)
-    people = (reviewers,cc)
+    people = (reviewers, cc)
 
     if not pending:
-      print >>sys.stdout, "no branches ready for upload"
+      print("no branches ready for upload", file=sys.stderr)
     elif len(pending) == 1 and len(pending[0][1]) == 1:
       self._SingleBranch(opt, pending[0][1][0], people)
     else:

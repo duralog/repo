@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import print_function
 from color import Coloring
 from command import PagedCommand
 
@@ -41,7 +42,7 @@ are displayed.
     all_branches = []
     for project in self.GetProjects(args):
       br = [project.GetUploadableBranch(x)
-            for x in project.GetBranches().keys()]
+            for x in project.GetBranches()]
       br = [x for x in br if x]
       if opt.current_branch:
         br = [x for x in br if x.name == project.CurrentBranch]
@@ -54,8 +55,11 @@ are displayed.
       def __init__(self, config):
         Coloring.__init__(self, config, 'status')
         self.project = self.printer('header', attr='bold')
+        self.text = self.printer('text')
 
     out = Report(all_branches[0].project.config)
+    out.text("Deprecated. See repo info -o.")
+    out.nl()
     out.project('Projects Overview')
     out.nl()
 
@@ -70,11 +74,11 @@ are displayed.
 
       commits = branch.commits
       date = branch.date
-      print '%s %-33s (%2d commit%s, %s)' % (
+      print('%s %-33s (%2d commit%s, %s)' % (
             branch.name == project.CurrentBranch and '*' or ' ',
             branch.name,
             len(commits),
             len(commits) != 1 and 's' or ' ',
-            date)
+            date))
       for commit in commits:
-        print '%-35s   - %s' % ('', commit)
+        print('%-35s   - %s' % ('', commit))

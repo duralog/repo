@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import print_function
 import fcntl
 import re
 import os
@@ -41,9 +42,13 @@ class Forall(Command, MirrorSafeCommand):
   helpSummary = "Run a shell command in each project"
   helpUsage = """
 %prog [<project>...] -c <command> [<arg>...]
+%prog -r str1 [str2] ... -c <command> [<arg>...]"
 """
   helpDescription = """
 Executes the same shell command in each project.
+
+The -r option allows running the command only on projects matching
+regex or wildcard expression.
 
 Output Formatting
 -----------------
@@ -92,6 +97,9 @@ following <command>.
 
 Unless -p is used, stdin, stdout, stderr are inherited from the
 terminal and are not redirected.
+
+If -e is used, when a command exits unsuccessfully, '%prog' will abort
+without iterating through the remaining projects.
 """
 
   def _Options(self, p):
@@ -99,11 +107,17 @@ terminal and are not redirected.
       setattr(parser.values, option.dest, list(parser.rargs))
       while parser.rargs:
         del parser.rargs[0]
+    p.add_option('-r', '--regex',
+                 dest='regex', action='store_true',
+                 help="Execute the command only on projects matching regex or wildcard expression")
     p.add_option('-c', '--command',
                  help='Command (and arguments) to execute',
                  dest='command',
                  action='callback',
                  callback=cmd)
+    p.add_option('-e', '--abort-on-errors',
+                 dest='abort_on_errors', action='store_true',
+                 help='Abort if a command exits unsuccessfully')
 
     g = p.add_option_group('Output')
     g.add_option('-p',
@@ -159,7 +173,12 @@ terminal and are not redirected.
     rc = 0
     first = True
 
-    for project in self.GetProjects(args):
+    if not opt.regex:
+      projects = self.GetProjects(args)
+    else:
+      projects = self.FindProjects(args)
+
+    for project in projects:
       env = os.environ.copy()
       def setenv(name, val):
         if val is None:
@@ -183,7 +202,7 @@ terminal and are not redirected.
       if not os.path.exists(cwd):
         if (opt.project_header and opt.verbose) \
         or not opt.project_header:
-          print >>sys.stderr, 'skipping %s/' % project.relpath
+          print('skipping %s/' % project.relpath, file=sys.stderr)
         continue
 
       if opt.project_header:
@@ -241,7 +260,12 @@ terminal and are not redirected.
                 first = False
               else:
                 out.nl()
-              out.project('project %s/', project.relpath)
+
+              if mirror:
+                project_header_path = project.name
+              else:
+                project_header_path = project.relpath
+              out.project('project %s/', project_header_path)
               out.nl()
               out.flush()
               if errbuf:
@@ -254,7 +278,12 @@ terminal and are not redirected.
             s.dest.flush()
 
       r = p.wait()
-      if r != 0 and r != rc:
-        rc = r
+      if r != 0:
+        if r != rc:
+          rc = r
+        if opt.abort_on_errors:
+          print("error: %s: Aborting due to previous error" % project.relpath,
+                file=sys.stderr)
+          sys.exit(r)
     if rc != 0:
       sys.exit(rc)

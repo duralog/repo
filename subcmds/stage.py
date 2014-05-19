@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from __future__ import print_function
 import sys
 
 from color import Coloring
@@ -48,9 +49,9 @@ The '%prog' command stages files to prepare the next commit.
       self.Usage()
 
   def _Interactive(self, opt, args):
-    all_projects = filter(lambda x: x.IsDirty(), self.GetProjects(args))
+    all_projects = [p for p in self.GetProjects(args) if p.IsDirty()]
     if not all_projects:
-      print >>sys.stderr,'no projects have uncommitted modifications'
+      print('no projects have uncommitted modifications', file=sys.stderr)
       return
 
     out = _ProjectList(self.manifest.manifestProject.config)
@@ -58,7 +59,7 @@ The '%prog' command stages files to prepare the next commit.
       out.header('        %s', 'project')
       out.nl()
 
-      for i in xrange(0, len(all_projects)):
+      for i in range(len(all_projects)):
         p = all_projects[i]
         out.write('%3d:    %s', i + 1, p.relpath + '/')
         out.nl()
@@ -97,11 +98,11 @@ The '%prog' command stages files to prepare the next commit.
           _AddI(all_projects[a_index - 1])
           continue
 
-      p = filter(lambda x: x.name == a or x.relpath == a, all_projects)
-      if len(p) == 1:
-        _AddI(p[0])
+      projects = [p for p in all_projects if a in [p.name, p.relpath]]
+      if len(projects) == 1:
+        _AddI(projects[0])
         continue
-    print 'Bye.'
+    print('Bye.')
 
 def _AddI(project):
   p = GitCommand(project, ['add', '--interactive'], bare=False)
