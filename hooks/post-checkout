@@ -1,2 +1,10 @@
 #!/bin/bash
-pwd | grep -q "node_modules" && npm install
+pwd | grep -q "node_modules"
+if [ -z $(pwd | grep -q 'node_modules') ]; then
+	if [ package.json -nt .git/.npm_installed ]; then
+		npm install
+		if [ -d node_modules ]; then
+			touch .git/.npm_installed
+		fi
+	fi
+fi
