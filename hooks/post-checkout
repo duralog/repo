@@ -1,4 +1,5 @@
 #!/bin/bash
+echo "Blueshift_repo version..."
 pwd | grep -q "node_modules"
 if [ -z $(pwd | grep -q 'node_modules') ]; then
 	if [ package.json -nt .git/.npm_installed ]; then
@@ -7,4 +8,22 @@ if [ -z $(pwd | grep -q 'node_modules') ]; then
 			touch .git/.npm_installed
 		fi
 	fi
+fi
+if [ (which growlnotify) ]; then
+	function notify_me {
+		node -e  <<< END
+		require('shelljs/global');
+		var Growl = require('growl');
+		out = exec "repo info ."
+		var i, nl;
+		if(tyeof out === 'string' && ~(i = out.indexOf("Project: ")) && ~(nl = out.indexOf('\n', i))) {
+			project = out.substring(i + "Project:".length, nl ).trim();
+			console.log("Project!! "+project);
+		}
+		console.log ""
+		Growl(msg, {title: "Blueshift: updated "+, image: \./icons/fail.png});
+		END;
+	}
+	echo "we have growl..."
+	trap notify_me SIGHUP SIGINT SIGTERM
 fi
