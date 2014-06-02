@@ -1,5 +1,4 @@
 #!/bin/bash
-echo "Blueshift_repo version..."
 pwd | grep -q "node_modules"
 if [ -z $(pwd | grep -q 'node_modules') ]; then
 	if [ package.json -nt .git/.npm_installed ]; then
@@ -9,21 +8,20 @@ if [ -z $(pwd | grep -q 'node_modules') ]; then
 		fi
 	fi
 fi
-if [ (which growlnotify) ]; then
-	function notify_me {
-		node -e  <<< END
-		require('shelljs/global');
-		var Growl = require('growl');
-		out = exec "repo info ."
-		var i, nl;
-		if(tyeof out === 'string' && ~(i = out.indexOf("Project: ")) && ~(nl = out.indexOf('\n', i))) {
-			project = out.substring(i + "Project:".length, nl ).trim();
-			console.log("Project!! "+project);
-		}
-		console.log ""
-		Growl(msg, {title: "Blueshift: updated "+, image: \./icons/fail.png});
-		END;
-	}
-	echo "we have growl..."
-	trap notify_me SIGHUP SIGINT SIGTERM
+
+# emit a notification and in the future, perhaps do a lot lot more
+if [ $(which growlnotify) ]; then
+
+print_js=$(cat <<END_NODE
+require('shelljs/global');
+var Growl = require('growl');
+var res = exec("repo info .");
+var i, nl, out = res.output;
+if(!res.code && typeof out === 'string' && ~(i = out.indexOf("Project: ")) && ~(nl = out.indexOf('\n', i))) {
+	project = out.substring(i + "Project:".length, nl ).trim();
+}
+Growl("updated "+project, {title: "Blueshift", image: './icons/success.png'});
+END_NODE)
+node -e "$print_js" 2> /dev/null
+
 fi
