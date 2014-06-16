@@ -2,7 +2,8 @@
 pwd | grep -q "node_modules"
 if [ -z $(pwd | grep -q 'node_modules') ]; then
 	if [ package.json -nt .git/.npm_installed ]; then
-		npm install
+		# npm install
+		echo "you may need to run: npm install"
 		if [ -d node_modules ]; then
 			touch .git/.npm_installed
 		fi
